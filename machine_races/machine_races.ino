@@ -18,6 +18,7 @@
 #define BACK_PATH_TYPE_CODE 0b00000000
 #define FINISH_POSITION_CODE 0b00001000 // обозначение, что маршрут достиг конца - финиша
 
+Stack<uint8_t> steps_for_save; // запасной стек для возврата значений шага при повторных движениях к финишу
 Stack<uint8_t> steps;
 /*
 Байт содержит две информационные единицы:
@@ -93,6 +94,7 @@ uint8_t combine__path_type__with__step_path(uint8_t path_type, uint8_t step_type
   return (step_type << 4) | path_type;
 }
 
+// функция определения движения на неизведанных развилках при встрече в первой попытке
 uint8_t determine_step_path_for_path_type(uint8_t path_type) {
   if (path_type == FINISH_POSITION_CODE) {
     return STOP_PATH_CODE;
@@ -114,6 +116,26 @@ uint8_t determine_step_path_for_path_type(uint8_t path_type) {
   return 0;
 }
 
+void act_to_go_standart(uint8_t step_type) {
+  if(step_type == GO_FORWARD_PATH_CODE) {
+    act_to_go_forward();
+  }
+  else if (step_type == GO_RIGHT_PATH_CODE) {
+    act_to_rotate_to_value(-90);
+    act_to_go_forward();
+  }
+  else if (step_type == GO_LEFT_PATH_CODE) {
+    act_to_rotate_to_value(90);
+    act_to_go_forward();
+  }
+  else if (step_type == GO_BACK_PATH_CODE) {
+    is_forward = false;
+
+    act_to_rotate_to_value(180);
+    act_to_go_forward();
+  }
+}
+
 // выполняет движение до развилки или тупике
 void act_to_go(uint8_t step) {
   uint8_t step_path = get_step_path(step);
@@ -126,111 +148,70 @@ void act_to_go(uint8_t step) {
       is_first_start = false;
 
       reverse_steps_stack();
+
+      steps_for_save = steps;
+    }
+    else {
+      steps = steps_for_save; // чтобы вернуть копию стека пути к финишу в стек, из которого с начала до конца были взяты все шаги
     }
   }
   else if (is_first_start) {
     if (is_forward) {
       steps.push(step); // вернуть информацию о том, куда было выполнено движение
 
-      if(step_path == GO_FORWARD_PATH_CODE) {
-        act_to_go_forward();
-      }
-      else if (step_path == GO_RIGHT_PATH_CODE) {
-        act_to_rotate_to_value(-90);
-        act_to_go_forward();
-      }
-      else if (step_path == GO_LEFT_PATH_CODE) {
-        act_to_rotate_to_value(90);
-        act_to_go_forward();
-      }
-      else if (step_path == GO_BACK_PATH_CODE) {
-        is_forward = false;
-
-        act_to_rotate_to_value(180);
-        act_to_go_forward();
-      }
+      act_to_go_standart(step_path);
     }
     else {
-      step_path = determine_path_to_finish(step);
+      step_path = determine_path_to_prev_path(step);
 
-      act_to_go(step_path);
+      act_to_go_standart(step_path);
     }
   }
   else {
-    if(step_path == GO_FORWARD_PATH_CODE) {
-      act_to_go_forward();
-    }
-    else if (step_path == GO_RIGHT_PATH_CODE) {
-      act_to_rotate_to_value(-90);
-      act_to_go_forward();
-    }
-    else if (step_path == GO_LEFT_PATH_CODE) {
-      act_to_rotate_to_value(90);
-      act_to_go_forward();
-    }
+    act_to_go_standart(step_path);
   }
 }
 
-// метод определения неизвестного пути при первом прохождении
-uint8_t determine_path_to_finish(uint8_t step) {
+// функция для определения движения для возврата к последней развилке с неизведанными путями движения к финишу
+uint8_t determine_path_to_prev_path(uint8_t step) {
   uint8_t path_type = get_path_type(step);
   uint8_t step_path = get_step_path(step);
-  
-  if (is_forward) {
-    // движение вперед по развилке
-    return step_path;
+
+  // движение назад до предыдущей развилки, на которой остались не пройденные пути
+
+  // поворот в другой путь на развилке против часовой стрелки
+  if (path_type == RIGHT_LEFT_PATH_TYPE_CODE){
+    // так как при обратном направлении мы должны повернуть в другой путь на развилке, то, при вправо-влево, мы возвращаемся из правой развилки и нам необходимо попасть в левую
+    // чтобы не поворачиваться в начальную позицию, как мы впервые встретили развилку, мы оптимизируем путь движения
+    is_forward = true;
+
+    return GO_FORWARD_PATH_CODE;
   }
-  else {
-    // движение назад до предыдущей развилки, на которой остались не пройденные пути
-
-    // поворот в другой путь на развилке против часовой стрелки
-    if (path_type == RIGHT_LEFT_PATH_TYPE_CODE){
-      // так как при обратном направлении мы должны повернуть в другой путь на развилке, то, при вправо-влево, мы возвращаемся из правой развилки и нам необходимо попасть в левую
-      // чтобы не поворачиваться в начальную позицию, как мы впервые встретили развилку, мы оптимизируем путь движения
-      is_forward = true;
-
-      return GO_FORWARD_PATH_CODE;
-    }
-    else if (path_type == RIGHT_FORWARD_PATH_TYPE_CODE) {
-      is_forward = true;
-      
-      return GO_RIGHT_PATH_CODE;
-    }
-    else if (path_type == FORWARD_LEFT_PATH_TYPE_CODE) {
-      is_forward = true;
-      
-      return GO_RIGHT_PATH_CODE;
-    }
-    else if (path_type == RIGHT_FORWARD_LEFT_PATH_TYPE_CODE) {
-      is_forward = true;
-      
-      return GO_RIGHT_PATH_CODE;
-    }
-
-    // движение до предыдущей доступной развилки
-    else if (path_type == RIGHT_PATH_TYPE_CODE) {
-      return GO_LEFT_PATH_CODE;
-    }
-    else if (path_type == LEFT_PATH_TYPE_CODE) {
-      return GO_RIGHT_PATH_CODE;
-    }
-    else if (path_type == FORWARD_PATH_TYPE_CODE) {
-      return GO_FORWARD_PATH_CODE;
-    }
+  else if (path_type == RIGHT_FORWARD_PATH_TYPE_CODE) {
+    is_forward = true;
+    
+    return GO_RIGHT_PATH_CODE;
+  }
+  else if (path_type == FORWARD_LEFT_PATH_TYPE_CODE) {
+    is_forward = true;
+    
+    return GO_RIGHT_PATH_CODE;
+  }
+  else if (path_type == RIGHT_FORWARD_LEFT_PATH_TYPE_CODE) {
+    is_forward = true;
+    
+    return GO_RIGHT_PATH_CODE;
   }
 
-  return STOP_PATH_CODE;
-}
-
-// метод определения способа движения по известному пути к финишу
-// перед использованием необходимо перевернуть стек методом 'reverse_steps_stack'
-uint8_t get_determined_path_to_finish() {
-  if (steps.length() > 0) {
-    int8_t step = steps.pop();
-
-    uint8_t step_path = get_step_path(step);
-
-    return step_path;
+  // движение до предыдущей доступной развилки
+  else if (path_type == RIGHT_PATH_TYPE_CODE) {
+    return GO_LEFT_PATH_CODE;
+  }
+  else if (path_type == LEFT_PATH_TYPE_CODE) {
+    return GO_RIGHT_PATH_CODE;
+  }
+  else if (path_type == FORWARD_PATH_TYPE_CODE) {
+    return GO_FORWARD_PATH_CODE;
   }
 
   return STOP_PATH_CODE;
