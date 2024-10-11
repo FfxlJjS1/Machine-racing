@@ -31,7 +31,8 @@ Stack<uint8_t> steps;
   - 0100 - прямая развилка, используется для стартовой точки, если она такая
   - 0001 - развилка только вправо
   - 0010 - развилка только влево
-  - 0011 - развилка и врпаво и влево
+  - 0011 - развилка и вправо и влево
+  - 0100 - движение вперед
   - 0101 - развилка вправо и прямо
   - 0110 - развилка влево и прямо
   - 0111 - развилка вправо, прямо и влево
@@ -43,21 +44,28 @@ bool is_paused = true; // показывает состояние машинки
 
 // метод первичной настройки машинки
 void setup() {
-
+  // ...
 }
 
-// получение кода, описывающего куда поехал
-uint8_t get_step_path(uint8_t step) {
-  return (step << 4) >> 4;
+
+// код для поворота на определенный градус от -180 до 180
+void act_to_rotate_to_value(int8_t degree) {
+  // ...
 }
 
-// получение кода, описывающего развилку
-uint8_t get_path_type(uint8_t step) {
-  return step >> 4;
+// метод для каллибровки позиции машинки в лабиринте относительно стен
+void callibrate_machine_position() {
+  // ...
 }
 
-uint8_t combine__path_type__with__step_path(uint8_t path_type, uint8_t step_type) {
-  return (step_path << 4) | path_type;
+// функция для движения до первой развилки, тупика или финиша
+void act_to_go_forward() {
+  // ...
+}
+
+// функция для определения, является ли квадрат финишом или нет
+bool detect_is_finish() {
+  // ...
 }
 
 // метод в котором определяется тип развилки через сенсоры
@@ -65,62 +73,106 @@ uint8_t determine_path_type() {
   uint8_t path_type = BACK_PATH_TYPE_CODE;
 
   // код определения типа развилки
-  
+  // ...
+
   return path_type;
+}
+
+
+// получение кода, описывающего развилку
+uint8_t get_path_type(uint8_t step) {
+  return step >> 4;
+}
+
+// получение кода, описывающего куда поехал
+uint8_t get_step_path(uint8_t step) {
+  return (step << 4) >> 4;
+}
+
+uint8_t combine__path_type__with__step_path(uint8_t path_type, uint8_t step_type) {
+  return (step_type << 4) | path_type;
 }
 
 uint8_t determine_step_path_for_path_type(uint8_t path_type) {
   if (path_type == FINISH_POSITION_CODE) {
     return STOP_PATH_CODE;
   }
+  else if (path_type == RIGHT_PATH_TYPE_CODE || path_type == RIGHT_LEFT_PATH_TYPE_CODE
+          || path_type == RIGHT_FORWARD_PATH_TYPE_CODE || path_type == RIGHT_FORWARD_LEFT_PATH_TYPE_CODE) {
+    return GO_RIGHT_PATH_CODE;
+  }
+  else if (path_type == FORWARD_PATH_TYPE_CODE || path_type == FORWARD_LEFT_PATH_TYPE_CODE) {
+    return GO_FORWARD_PATH_CODE;
+  }
+  else if (path_type == LEFT_PATH_TYPE_CODE) {
+    return GO_LEFT_PATH_CODE;
+  }
+  else if (path_type == BACK_PATH_TYPE_CODE) {
+    return GO_BACK_PATH_CODE;
+  }
 
   return 0;
 }
 
-// метод для каллибровки позиции машинки в лабиринте относительно стен
-void callibrate_machine_position() {
-
-}
-
 // выполняет движение до развилки или тупике
-void act_to_go(uint8_t step_type) {
-  if (step_type == STOP_PATH_CODE) {
+void act_to_go(uint8_t step) {
+  uint8_t step_path = get_step_path(step);
+  uint8_t path_type = get_path_type(step);
+
+  if (step_path == STOP_PATH_CODE) {
     is_paused = true;
-    is_first = false;
+
+    if (is_first_start) {
+      is_first_start = false;
+
+      reverse_steps_stack();
+    }
   }
-  else if(step_type == GO_FORWARD_PATH_CODE) {
+  else if (is_first_start) {
+    if (is_forward) {
+      steps.push(step); // вернуть информацию о том, куда было выполнено движение
 
+      if(step_path == GO_FORWARD_PATH_CODE) {
+        act_to_go_forward();
+      }
+      else if (step_path == GO_RIGHT_PATH_CODE) {
+        act_to_rotate_to_value(-90);
+        act_to_go_forward();
+      }
+      else if (step_path == GO_LEFT_PATH_CODE) {
+        act_to_rotate_to_value(90);
+        act_to_go_forward();
+      }
+      else if (step_path == GO_BACK_PATH_CODE) {
+        is_forward = false;
+
+        act_to_rotate_to_value(180);
+        act_to_go_forward();
+      }
+    }
+    else {
+      step_path = determine_path_to_finish(step);
+
+      act_to_go(step_path);
+    }
   }
-  else if (step_type == GO_RIGHT_PATH_CODE) {
-
+  else {
+    if(step_path == GO_FORWARD_PATH_CODE) {
+      act_to_go_forward();
+    }
+    else if (step_path == GO_RIGHT_PATH_CODE) {
+      act_to_rotate_to_value(-90);
+      act_to_go_forward();
+    }
+    else if (step_path == GO_LEFT_PATH_CODE) {
+      act_to_rotate_to_value(90);
+      act_to_go_forward();
+    }
   }
-  else if (step_type == GO_LEFT_PATH_CODE) {
-
-  }
-  else if (step_type == GO_BACK_PATH_CODE) {
-
-  }
-}
-
-// код для поворота на определенный градус от -180 до 180
-void act_to_rotate_to_value(int8_t degree) {
-  
-}
-
-// метод для поворота на месте на право
-void act_to_rotate_to_right() {
-  // код для поворота по часовой на 90 градусов на месте
-  act_to_rotate_to_value(-90);
-}
-
-void act_to_rotate_to_left() {
-  // код для поворота против часовой на 90 градусов на месте
-  act_to_rotate_to_value(90);
 }
 
 // метод определения неизвестного пути при первом прохождении
-uint8_t determine_path_to_finish() {
-  uint8_t step = steps.pop();
+uint8_t determine_path_to_finish(uint8_t step) {
   uint8_t path_type = get_path_type(step);
   uint8_t step_path = get_step_path(step);
   
@@ -137,28 +189,20 @@ uint8_t determine_path_to_finish() {
       // чтобы не поворачиваться в начальную позицию, как мы впервые встретили развилку, мы оптимизируем путь движения
       is_forward = true;
 
-      steps.push();
-      
       return GO_FORWARD_PATH_CODE;
     }
     else if (path_type == RIGHT_FORWARD_PATH_TYPE_CODE) {
       is_forward = true;
       
-      steps.push();
-
       return GO_RIGHT_PATH_CODE;
     }
     else if (path_type == FORWARD_LEFT_PATH_TYPE_CODE) {
       is_forward = true;
       
-      steps.push();
-
       return GO_RIGHT_PATH_CODE;
     }
     else if (path_type == RIGHT_FORWARD_LEFT_PATH_TYPE_CODE) {
       is_forward = true;
-      
-      steps.push();
       
       return GO_RIGHT_PATH_CODE;
     }
@@ -213,40 +257,34 @@ void loop() {
       bool is_clicked = digitalRead(BUTTON_FOR_START);
 
       if (is_clicked)
-        is_pause = false;
+        is_paused = false;
 
-      delay(500);
+      delay(200);
     }
 
     while(is_clicked) {
       is_clicked = digitalRead(BUTTON_FOR_START);
 
-      delay(500);
+      delay(100);
     }
+
+    delay(100);
   }
 
   // каллибровка переменных машинки для движения
   callibrate_machine_position();
 
+  if (is_first_start || is_forward) {
+    // определение пути на позиции
+    uint8_t path_type = determine_path_type();
+
+    uint8_t step_type = determine_step_path_for_path_type(path_type);
+
+    steps.push(combine__path_type__with__step_path(path_type, step_type));
+  }
+
   // запуск движения
-  if (is_first_start) {
-    if (is_forward) {
-      // движение по развилкам вперед
-      uint8_t path_type = determine_path_type();
-      uint8_t step_type = determine_step_path_for_path_type(path_type);
+  uint8_t step = steps.pop();
 
-      uint8_t step = combine__path_type__with__step_path(path_type, step_type);
-
-      steps.push(step);
-
-      act_to_go(step_type);
-    }
-  }
-  else {
-    uint8_t step = steps.pop();
-
-    uint8_t step_type = get_step_type(step);
-
-    act_to_go(step_type);
-  }
+  act_to_go(step);
 }
