@@ -21,9 +21,10 @@ uint16_t blue_light = 0;
 //Line order test function of trolley wheel
 #define IN_1  8            // L9110S B-1A motors Right Back       GPIO0 (D8)
 #define IN_2  4            // L9110S B-2A motors Right Forw       GPIO4 (D4)
-#define IN_3  7           // L9110S A-1A motors Left Back      GPIO7(D7)
-#define IN_4  12           // L9110S A-1B motors Left Forw      GPIO12(D12)
+#define IN_3  12           // L9110S A-1A motors Left Back      GPIO7(D7)
+#define IN_4  7           // L9110S A-1B motors Left Forw      GPIO12(D12)
 int speedCar = 180;
+int coeff_to_turn_90_degres = 230;
 
 #define STOP_PATH_CODE 0b00000000 // обозначение, что программа пришла в черный квадрат
 #define GO_FORWARD_PATH_CODE 0b00000001
@@ -114,6 +115,8 @@ void setup() {
   
   // Wait for initialization and calibration to finish
   delay(500);
+
+  is_paused = false;
 }
 
 apds_color read_apds_color() {
@@ -168,7 +171,7 @@ Echo -------> pin 10
 */
 float read_distance_from_ultrasonic_distancefinder() {
   digitalWrite(Trig, LOW);
-  delayMicroseconds(2);
+  delayMicroseconds(5);
   
   digitalWrite(Trig, HIGH);
   delayMicroseconds(10);
@@ -185,6 +188,8 @@ long read_distance_from_left_laser_distancefinder() {
   digitalWrite(TAKE_OFF_RIGHT_LASER_RANGEFINDER_OUTPUT, HIGH);
   digitalWrite(TAKE_OFF_LEFT_LASER_RANGEFINDER_OUTPUT, LOW);
 
+  delay(50);
+
   long read_distance = read_distance_from_enable_laser_distancefinder();
 
   return read_distance;
@@ -195,6 +200,8 @@ long read_distance_from_right_laser_distancefinder() {
   digitalWrite(TAKE_OFF_RIGHT_LASER_RANGEFINDER_OUTPUT, LOW);
   digitalWrite(TAKE_OFF_LEFT_LASER_RANGEFINDER_OUTPUT, HIGH);
 
+  delay(50);
+
   long read_distance = read_distance_from_enable_laser_distancefinder();
 
   return read_distance;
@@ -202,26 +209,95 @@ long read_distance_from_right_laser_distancefinder() {
 
 
 // код для поворота на определенный градус от -180 до 180
-void act_to_rotate_to_value(int8_t degree) {
-  // ...
+void act_to_rotate_to_value(int coefficient) {
+  act_to_stop_follow();
+
+  if (coefficient > 0) {
+    digitalWrite(IN_1, LOW);
+    analogWrite(IN_2, speedCar);
+    analogWrite(IN_3, speedCar);
+    digitalWrite(IN_4, LOW);
+  }
+  else if (coefficient < 0) {
+    digitalWrite(IN_1, speedCar);
+    analogWrite(IN_2, LOW);
+    analogWrite(IN_3, LOW);
+    digitalWrite(IN_4, speedCar);
+  }
+
+  delay(abs(coefficient));
+
+  act_to_stop_follow();
 }
 
 // метод для каллибровки позиции машинки в лабиринте относительно стен
 void callibrate_machine_position() {
-  // ...
+  long left_distance = read_distance_from_left_laser_distancefinder();
+  long right_distance = read_distance_from_right_laser_distancefinder();
+  float forward_distance = read_distance_from_ultrasonic_distancefinder();
+
+  int coeff_to_rotate = 90;
+  bool is_collibrated = true;
+
+  do {
+    coeff_to_rotate = 90;
+    is_collibrated = true;
+
+    act_to_rotate_to_value(coeff_to_rotate);
+
+    long left_distance_after = read_distance_from_left_laser_distancefinder();
+    long right_distance_after = read_distance_from_right_laser_distancefinder();
+
+    if (left_distance < 200) {
+      if (left_distance_after > left_distance) {
+        act_to_rotate_to_value(-coeff_to_rotate);
+      }
+      else {
+        is_collibrated = false;
+      }
+    }
+    else if (right_distance < 200) {
+      if (right_distance_after > right_distance) {
+        act_to_rotate_to_value(-coeff_to_rotate);
+      }
+      else {
+        is_collibrated = false;
+      }
+    }
+    else {
+      break;
+    }
+
+    left_distance = left_distance_after;
+    right_distance = right_distance_after;
+  } while(!is_collibrated);
 }
 
 // функция для движения до первой развилки, тупика или финиша
 void act_to_go_forward() {
-  digitalWrite(IN_1, LOW);
-  analogWrite(IN_2, speedCar);
-  analogWrite(IN_3, speedCar);
-  digitalWrite(IN_4, LOW);
+  uint8_t new_path_type = BACK_PATH_TYPE_CODE;
+
+  do {
+    digitalWrite(IN_1, LOW);
+    analogWrite(IN_2, speedCar);
+    analogWrite(IN_3, LOW);
+    digitalWrite(IN_4, speedCar);
+  
+    delay(1000);
+
+    act_to_stop_follow();
+
+    callibrate_machine_position();
+    
+    new_path_type = determine_path_type();
+  } while(new_path_type == FORWARD_PATH_TYPE_CODE);
 }
 
 // функция для определения, является ли квадрат финишом или нет
 bool detect_is_finish() {
-  // ...
+  apds_color apds_possition_color =  read_apds_color();
+
+  return apds_possition_color.ambient_light <= 1 && apds_possition_color.blue_light <= 1 && apds_possition_color.green_light <= 1 && apds_possition_color.red_light <= 1;
 }
 
 void act_to_stop_follow() {
@@ -235,8 +311,24 @@ void act_to_stop_follow() {
 uint8_t determine_path_type() {
   uint8_t path_type = BACK_PATH_TYPE_CODE;
 
-  // код определения типа развилки
-  // ...
+  long left_distance = read_distance_from_left_laser_distancefinder();
+  long right_distance = read_distance_from_right_laser_distancefinder();
+  float forward_distance = read_distance_from_ultrasonic_distancefinder();
+
+  if (detect_is_finish()) {
+    path_type = FINISH_POSITION_CODE;
+  }
+  else {
+    if (left_distance > 230) {
+      path_type |= LEFT_PATH_TYPE_CODE;
+    }
+    if (right_distance > 230) {
+      path_type |= RIGHT_PATH_TYPE_CODE;
+    }
+    if (forward_distance > 230) {
+      path_type |= FORWARD_PATH_TYPE_CODE;
+    }
+  }
 
   return path_type;
 }
@@ -283,17 +375,30 @@ void act_to_go_standart(uint8_t step_type) {
     act_to_go_forward();
   }
   else if (step_type == GO_RIGHT_PATH_CODE) {
-    act_to_rotate_to_value(-90);
+    act_to_rotate_to_value(-coeff_to_turn_90_degres);
+
+    // callibrate_machine_position();
+
     act_to_go_forward();
   }
   else if (step_type == GO_LEFT_PATH_CODE) {
-    act_to_rotate_to_value(90);
+    act_to_rotate_to_value(coeff_to_turn_90_degres);
+
+    // callibrate_machine_position();
+
     act_to_go_forward();
   }
   else if (step_type == GO_BACK_PATH_CODE) {
     is_forward = false;
 
-    act_to_rotate_to_value(180);
+    act_to_rotate_to_value(coeff_to_turn_90_degres);
+
+    //callibrate_machine_position();
+
+    act_to_rotate_to_value(coeff_to_turn_90_degres);
+
+    callibrate_machine_position();
+
     act_to_go_forward();
   }
   else if (step_type == STOP_PATH_CODE){
@@ -436,8 +541,14 @@ void go() {
 
 // метод, который запускается повторениями
 void loop() {
-  // go();
+  go();
+  
+  //Serial.println(determine_path_type());
 
+  //act_to_stop_follow();
+  // digitalWrite(IN_1, HIGH);
+
+  /*
   Serial.print("Distance from forward: ");
   Serial.println(read_distance_from_ultrasonic_distancefinder());
 
@@ -448,4 +559,5 @@ void loop() {
   Serial.println(read_distance_from_left_laser_distancefinder());
 
   read_apds_color();
+  */
 }
