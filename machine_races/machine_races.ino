@@ -162,13 +162,6 @@ long read_distance_from_enable_laser_distancefinder() {
   return measure.RangeMilliMeter;
 }
 
-/*
-Function: obtain ultrasonic sensor ranging data
-Parameters: Trig, Echo
-Parameter description: sensor connected to the motherboard pin port 9,10
-Trig -------> pin 9
-Echo -------> pin 10
-*/
 float read_distance_from_ultrasonic_distancefinder() {
   digitalWrite(Trig, LOW);
   delayMicroseconds(5);
@@ -236,41 +229,85 @@ void callibrate_machine_position() {
   long right_distance = read_distance_from_right_laser_distancefinder();
   float forward_distance = read_distance_from_ultrasonic_distancefinder();
 
+  if (left_distance = 20) 
+    left_distance = read_distance_from_left_laser_distancefinder();
+  if (right_distance = 20)
+    right_distance = read_distance_from_right_laser_distancefinder();
+
   int coeff_to_rotate = 90;
-  bool is_collibrated = true;
+  int max_iteration_count = 3;
 
-  do {
-    coeff_to_rotate = 90;
-    is_collibrated = true;
+  
+  // Каллибровка вдоль одной из стенок (правой, левой или передней) до примерного перпендикуляра
+  if (left_distance < 80) {
+    // Каллибровка вдоль левой стенки
+  }
+  else if (right_distance < 80) {
+    // Каллибровка вдоль правой стенки
+  }
+  // Корректировка позиции относительно стонок
+  else if (forward_distance < 16) {
+    // Каллибровка вдоль передней стенки
+  }
 
+  // Корректировка направления движения вдоль стен, чтобы не упереться в нее
+  if (left_distance < 200 && right_distance < 200) {
+    if (right_distance < 50) {
+      act_to_rotate_to_value(coeff_to_rotate);
+    }
+    else if (left_distance < 50) {
+      act_to_rotate_to_value(-coeff_to_rotate);
+    }
+  }
+  else if (left_distance < 50) {
+    act_to_rotate_to_value(-coeff_to_rotate);
+  }
+  else if (right_distance < 50) {
     act_to_rotate_to_value(coeff_to_rotate);
+  }
+  // Корректировка позиции относительно передней стени
+  else if (forward_distance < 16) {
+    while (forward_distance < 6) {
+      act_to_go_for_coefficient(-150);
 
-    long left_distance_after = read_distance_from_left_laser_distancefinder();
-    long right_distance_after = read_distance_from_right_laser_distancefinder();
-
-    if (left_distance < 200) {
-      if (left_distance_after > left_distance) {
-        act_to_rotate_to_value(-coeff_to_rotate);
-      }
-      else {
-        is_collibrated = false;
-      }
-    }
-    else if (right_distance < 200) {
-      if (right_distance_after > right_distance) {
-        act_to_rotate_to_value(-coeff_to_rotate);
-      }
-      else {
-        is_collibrated = false;
-      }
-    }
-    else {
-      break;
+      forward_distance = read_distance_from_ultrasonic_distancefinder();
     }
 
-    left_distance = left_distance_after;
-    right_distance = right_distance_after;
-  } while(!is_collibrated);
+    while (forward_distance > 10) {
+      act_to_go_for_coefficient(150);
+
+      forward_distance = read_distance_from_ultrasonic_distancefinder();
+    }
+  }
+}
+
+void act_to_go_for_coefficient(long coefficient) {
+  Serial.print("Coefficient :");
+  Serial.println(coefficient);
+
+  if (coefficient > 0) {
+    Serial.println("Go forward");
+
+    digitalWrite(IN_1, LOW);
+    analogWrite(IN_2, speedCar);
+    analogWrite(IN_3, LOW);
+    digitalWrite(IN_4, speedCar);
+  
+    delay(abs(coefficient));
+  }
+  else if (coefficient < 0) {
+    Serial.println("Go back");
+
+    digitalWrite(IN_1, speedCar);
+    analogWrite(IN_2, LOW);
+    analogWrite(IN_3, speedCar);
+    digitalWrite(IN_4, LOW);
+    
+    delay(abs(coefficient));
+  }
+
+  Serial.println("Stop");
+  act_to_stop_follow();
 }
 
 // функция для движения до первой развилки, тупика или финиша
@@ -278,12 +315,7 @@ void act_to_go_forward() {
   uint8_t new_path_type = BACK_PATH_TYPE_CODE;
 
   do {
-    digitalWrite(IN_1, LOW);
-    analogWrite(IN_2, speedCar);
-    analogWrite(IN_3, LOW);
-    digitalWrite(IN_4, speedCar);
-  
-    delay(1000);
+    act_to_go_for_coefficient(400);
 
     act_to_stop_follow();
 
@@ -305,6 +337,8 @@ void act_to_stop_follow() {
   digitalWrite(IN_2, LOW);
   digitalWrite(IN_3, LOW);
   digitalWrite(IN_4, LOW);
+  
+  delay(300);
 }
 
 // метод в котором определяется тип развилки через сенсоры
@@ -315,7 +349,12 @@ uint8_t determine_path_type() {
   long right_distance = read_distance_from_right_laser_distancefinder();
   float forward_distance = read_distance_from_ultrasonic_distancefinder();
 
-  if (detect_is_finish()) {
+  bool is_finish = detect_is_finish();
+
+  Serial.print("Finish state: ");
+  Serial.println(is_finish);
+
+  if (is_finish) {
     path_type = FINISH_POSITION_CODE;
   }
   else {
@@ -325,7 +364,7 @@ uint8_t determine_path_type() {
     if (right_distance > 230) {
       path_type |= RIGHT_PATH_TYPE_CODE;
     }
-    if (forward_distance > 230) {
+    if (forward_distance > 23) {
       path_type |= FORWARD_PATH_TYPE_CODE;
     }
   }
@@ -334,13 +373,13 @@ uint8_t determine_path_type() {
 }
 
 
-// получение кода, описывающего развилку
-uint8_t get_path_type(uint8_t step) {
+// получение кода, описывающего куда поехал
+uint8_t get_step_path(uint8_t step) {
   return step >> 4;
 }
 
-// получение кода, описывающего куда поехал
-uint8_t get_step_path(uint8_t step) {
+// получение кода, описывающего развилку
+uint8_t get_path_type(uint8_t step) {
   return (step << 4) >> 4;
 }
 
@@ -375,25 +414,22 @@ void act_to_go_standart(uint8_t step_type) {
     act_to_go_forward();
   }
   else if (step_type == GO_RIGHT_PATH_CODE) {
+    // Попробовать докручивать по сохранившимся дальностям стенок с попыткой повторить это же относительно симметричных лазерных дальномеров с докруткой в сторону поворота
     act_to_rotate_to_value(-coeff_to_turn_90_degres);
-
-    // callibrate_machine_position();
 
     act_to_go_forward();
   }
   else if (step_type == GO_LEFT_PATH_CODE) {
+    // Попробовать докручивать по сохранившимся дальностям стенок с попыткой повторить это же относительно симметричных лазерных дальномеров с докруткой в сторону поворота
     act_to_rotate_to_value(coeff_to_turn_90_degres);
-
-    // callibrate_machine_position();
 
     act_to_go_forward();
   }
   else if (step_type == GO_BACK_PATH_CODE) {
+    // Попробовать докручивать по сохранившимся дальностям стенок с попыткой повторить это же относительно симметричных лазерных дальномеров с докруткой в сторону поворота
     is_forward = false;
 
     act_to_rotate_to_value(coeff_to_turn_90_degres);
-
-    //callibrate_machine_position();
 
     act_to_rotate_to_value(coeff_to_turn_90_degres);
 
@@ -411,7 +447,15 @@ void act_to_go(uint8_t step) {
   uint8_t step_path = get_step_path(step);
   uint8_t path_type = get_path_type(step);
 
+  Serial.print("Path type: ");
+  Serial.println(path_type);
+
+  Serial.print("Step path: ");
+  Serial.println(step_path);
+
   if (step_path == STOP_PATH_CODE) {
+    Serial.println("Is paused");
+
     is_paused = true;
 
     if (is_first_start) {
@@ -426,13 +470,17 @@ void act_to_go(uint8_t step) {
     }
   }
   else if (is_first_start) {
-    if (is_forward) {
-      steps.push(step); // вернуть информацию о том, куда было выполнено движение
+    if (step_path == BACK_PATH_TYPE_CODE) {
+      is_paused = true;
 
-      act_to_go_standart(step_path);
+      Serial.println("Back");
+
+      // step_path = determine_path_to_prev_path(step);
+
+      // act_to_go_standart(step_path);
     }
     else {
-      step_path = determine_path_to_prev_path(step);
+      steps.push(step); // вернуть информацию о том, куда было выполнено движение
 
       act_to_go_standart(step_path);
     }
@@ -504,7 +552,10 @@ void go() {
 
     while(is_paused) {
       // получение кнопки и определение
-      bool is_clicked = digitalRead(BUTTON_FOR_START);
+      is_clicked = digitalRead(BUTTON_FOR_START);
+
+      Serial.print("Is clicked: ");
+      Serial.println(is_clicked);
 
       if (is_clicked)
         is_paused = false;
@@ -524,11 +575,19 @@ void go() {
   // каллибровка переменных машинки для движения
   callibrate_machine_position();
 
-  if (is_first_start || is_forward) {
+  Serial.println("out of callibration");
+
+  if (is_first_start) {
     // определение пути на позиции
     uint8_t path_type = determine_path_type();
 
+    Serial.print("path type: ");
+    Serial.println(path_type);
+
     uint8_t step_type = determine_step_path_for_path_type(path_type);
+
+    Serial.print("step type: ");
+    Serial.println(step_type);
 
     steps.push(combine__path_type__with__step_path(path_type, step_type));
   }
@@ -543,6 +602,10 @@ void go() {
 void loop() {
   go();
   
+  // Serial.println("Start loop");
+
+  // act_to_go_for_coefficient(1000);
+
   //Serial.println(determine_path_type());
 
   //act_to_stop_follow();
