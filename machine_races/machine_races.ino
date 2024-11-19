@@ -24,7 +24,7 @@ uint16_t blue_light = 0;
 #define IN_3  12           // L9110S A-1A motors Left Back      GPIO7(D7)
 #define IN_4  7           // L9110S A-1B motors Left Forw      GPIO12(D12)
 int speedCar = 180;
-int coeff_to_turn_90_degres = 230;
+int coeff_to_turn_90_degres = 260;
 
 #define STOP_PATH_CODE 0b00000000 // обозначение, что программа пришла в черный квадрат
 #define GO_FORWARD_PATH_CODE 0b00000001
@@ -265,12 +265,96 @@ void callibrate_machine_position() {
   long right_distance = read_distance_from_right_laser_distancefinder();
   float forward_distance = read_distance_from_ultrasonic_distancefinder();
 
+  Serial.println(left_distance);
+  Serial.println(right_distance);
+
   int coeff_to_rotate = 90;
   int max_iteration_count = 3;
   int current_iteration = 1;
 
+  // Корректировка позиции относительно передней стени
+  if (forward_distance < 22) {
+    while (forward_distance < 7) {
+      act_to_go_for_coefficient(-130);
+
+      forward_distance = read_distance_from_ultrasonic_distancefinder();
+    }
+
+    while (forward_distance > 9) {
+      act_to_go_for_coefficient(130);
+
+      forward_distance = read_distance_from_ultrasonic_distancefinder();
+    }
+  }
+
+  if (left_distance < 95) {
+    act_to_rotate_to_value(coeff_to_turn_90_degres);
+
+    act_to_go_for_coefficient(-130);
+
+    act_to_rotate_to_value(-coeff_to_turn_90_degres);
+  }
+  else if (right_distance < 95) {
+    act_to_rotate_to_value(-coeff_to_turn_90_degres);
+
+    act_to_go_for_coefficient(-130);
+
+    act_to_rotate_to_value(coeff_to_turn_90_degres);
+  }
+
+  // Корректировка позиции относительно стонок
+  if (forward_distance < 24) {
+    // Каллибровка вдоль передней стенки
+    long new_forward_distance = 0;
+
+    do {
+      act_to_rotate_to_value(coeff_to_rotate);
+
+      new_forward_distance = read_distance_from_ultrasonic_distancefinder();
+
+      if (forward_distance < new_forward_distance) {
+        act_to_rotate_to_value(-coeff_to_rotate);
+        
+        coeff_to_rotate = -coeff_to_rotate;
+      }
+      else {
+        forward_distance = new_forward_distance;
+      }
+      
+      coeff_to_rotate = coeff_to_rotate / 2;
+
+      current_iteration++;
+    } while (current_iteration <= max_iteration_count + 1);
+  }
+
+  // Проверка по катетам
+  if (left_distance + right_distance < 320) {
+    int trying = 1;
+
+    do {
+      act_to_rotate_to_value(coeff_to_rotate);
+
+      long new_left_distance = read_distance_from_left_laser_distancefinder();
+      long new_right_distance = read_distance_from_right_laser_distancefinder();
+
+      if (new_left_distance + new_right_distance > left_distance + right_distance) {
+        act_to_rotate_to_value(- coeff_to_rotate);
+
+        coeff_to_rotate = - coeff_to_rotate / 2;
+      }
+      else {
+        left_distance = new_left_distance;
+        right_distance = new_right_distance;
+
+        coeff_to_rotate = coeff_to_rotate / 2;
+      }
+
+      trying++;
+    } while(trying <= max_iteration_count + 1);
+  }
+
   // Каллибровка вдоль одной из стенок (правой, левой или передней) до примерного перпендикуляра
-  if (left_distance > 100 && left_distance < 130) {
+  else if (left_distance > 80 && left_distance < 140) {
     // Каллибровка вдоль левой стенки
     long new_left_distance = 0;
 
@@ -293,7 +377,7 @@ void callibrate_machine_position() {
       current_iteration++;
     } while (current_iteration <= max_iteration_count && left_distance > 75);
   }
-  else if (right_distance > 100 && right_distance < 130) {
+  else if (right_distance > 80 && right_distance < 140) {
     // Каллибровка вдоль правой стенки
     long new_right_distance = 0;
 
@@ -316,68 +400,22 @@ void callibrate_machine_position() {
       current_iteration++;
     } while (current_iteration <= max_iteration_count && right_distance > 75);
   }
-  // Корректировка позиции относительно стонок
-  else if (forward_distance < 16) {
-    // Каллибровка вдоль передней стенки
-    long new_forward_distance = 0;
 
-    do {
-      act_to_rotate_to_value(coeff_to_rotate);
-
-      new_forward_distance = read_distance_from_ultrasonic_distancefinder();
-
-      if (forward_distance < new_forward_distance) {
-        act_to_rotate_to_value(-coeff_to_rotate);
-        
-        coeff_to_rotate = -coeff_to_rotate;
-      }
-      else {
-        forward_distance = new_forward_distance;
-      }
-      
-      coeff_to_rotate = coeff_to_rotate / 2;
-
-      current_iteration++;
-    } while (current_iteration <= max_iteration_count);
-  }
-
-  coeff_to_rotate = 80;
-
-  // Корректировка направления движения вдоль стен, чтобы не упереться в нее
-  if (left_distance < 120) {
-    if (left_distance < 100) {
-      act_to_rotate_to_value(-coeff_to_rotate);
-    }
-
-    act_to_rotate_to_value(-coeff_to_rotate);
-  }
-  else if (right_distance < 120) {
-    if (right_distance < 100) {
-      act_to_rotate_to_value(coeff_to_rotate);
-    }
-
-    act_to_rotate_to_value(coeff_to_rotate);
-  }
-  else if (left_distance < 290 && right_distance > 290) {
-    act_to_rotate_to_value(coeff_to_rotate);
-  }
-  else if (right_distance < 290 && left_distance > 290) {
-    act_to_rotate_to_value(-coeff_to_rotate);
-  }
   // Корректировка позиции относительно передней стени
-  else if (forward_distance < 16) {
-    while (forward_distance < 6) {
+  if (forward_distance < 24) {
+    while (forward_distance < 7) {
       act_to_go_for_coefficient(-130);
 
       forward_distance = read_distance_from_ultrasonic_distancefinder();
     }
 
-    while (forward_distance > 12) {
+    while (forward_distance > 9) {
       act_to_go_for_coefficient(130);
 
       forward_distance = read_distance_from_ultrasonic_distancefinder();
     }
   }
+
 }
 
 // функция для движения до первой развилки, тупика или финиша
@@ -385,7 +423,7 @@ void act_to_go_forward() {
   uint8_t new_path_type = BACK_PATH_TYPE_CODE;
 
   do {
-    act_to_go_for_coefficient(800);
+    act_to_go_for_coefficient(700);
 
     act_to_stop_follow();
 
@@ -428,10 +466,10 @@ uint8_t determine_path_type() {
     long right_distance = read_distance_from_right_laser_distancefinder();
     float forward_distance = read_distance_from_ultrasonic_distancefinder();
 
-    if (left_distance > 230) {
+    if (left_distance > 270) {
       path_type |= LEFT_PATH_TYPE_CODE;
     }
-    if (right_distance > 230) {
+    if (right_distance > 270) {
       path_type |= RIGHT_PATH_TYPE_CODE;
     }
     if (forward_distance > 23) {
@@ -517,7 +555,7 @@ void act_to_go_standart(uint8_t step_type) {
   else if (step_type == STOP_PATH_CODE){
     act_to_go_for_coefficient(300);
 
-    callibrate_machine_position();
+    // callibrate_machine_position();
 
     act_to_stop_follow();
   }
@@ -701,4 +739,6 @@ void go() {
 // метод, который запускается повторениями
 void loop() {
   go();
+
+  // callibrate_machine_position();
 }
