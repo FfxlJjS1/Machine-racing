@@ -24,7 +24,7 @@ uint16_t blue_light = 0;
 #define IN_3  12           // L9110S A-1A motors Left Back      GPIO7(D7)
 #define IN_4  7           // L9110S A-1B motors Left Forw      GPIO12(D12)
 int speedCar = 180;
-int coeff_to_turn_90_degres = 230;
+int coeff_to_turn_90_degres = 270;
 int coeff_to_go_forward = 700;
 int coeff_to_go_forward_small = 110;
 
@@ -150,7 +150,11 @@ void callibrate_90_degtree_rotate() {
 
       coeff_to_plus = coeff_to_plus / 2;
     }
-  } while (abs(min_forward_distance - last_forward_distance) > 1.0);
+
+    act_to_stop_follow();
+
+    callibrate_side_walls();
+  } while (abs(min_forward_distance - last_forward_distance) > 0.5);
 
   coeff_to_turn_90_degres += result_coeff_to_plus;
 }
@@ -205,7 +209,7 @@ long read_distance_from_enable_laser_distancefinder() {
     laser_distance = measure.RangeMilliMeter;
 
     try_number++;
-  } while(try_number <= 6 && laser_distance == 20);
+  } while(try_number <= 10 && laser_distance == 20);
 
   return laser_distance;
 }
@@ -297,15 +301,21 @@ void act_to_go_for_coefficient(long coefficient) {
 void callibrate_for_forward_wall_far() {
   float forward_distance = read_distance_from_ultrasonic_distancefinder();
 
-  if (forward_distance < 22) {
+  callibrate_to_right_left_wall_far();
+
+  if (forward_distance < 18) {
     while (forward_distance < 10) {
       act_to_go_for_coefficient(-coeff_to_go_forward_small);
+
+      callibrate_to_right_left_wall_far();
 
       forward_distance = read_distance_from_ultrasonic_distancefinder();
     }
 
     while (forward_distance > 11) {
       act_to_go_for_coefficient(coeff_to_go_forward_small);
+
+      callibrate_to_right_left_wall_far();
 
       forward_distance = read_distance_from_ultrasonic_distancefinder();
     }
@@ -392,13 +402,14 @@ void callibrate_machine_position(bool is_going) {
   left_distance = read_distance_from_left_laser_distancefinder();
   right_distance = read_distance_from_right_laser_distancefinder();
   
-  if (!is_going && right_distance > 270) {
+  if (!is_going && right_distance > 270 && left_distance < 270) {
     callibrate_to_right_left_wall_far();
 
-    if (forward_distance > 22) {
-      while(right_distance > 270) {
+    if (forward_distance > 18) {
+      while(right_distance > 270 && forward_distance < 18) {
         act_to_go_for_coefficient(coeff_to_go_forward_small);
         
+        forward_distance = read_distance_from_ultrasonic_distancefinder();
         right_distance = read_distance_from_right_laser_distancefinder();
       }
 
@@ -407,15 +418,19 @@ void callibrate_machine_position(bool is_going) {
       act_to_go_for_coefficient(-150);
     }
   }
+  
+  left_distance = read_distance_from_left_laser_distancefinder();
+  right_distance = read_distance_from_right_laser_distancefinder();
 
   // Если слева не видит стены, то надо докрутить пока не увидит и вернуться назад, если впереди нет стенки, иначе откалиброваться до передней стенки
-  else if (!is_going && left_distance > 270) {
+  if (!is_going && left_distance > 270 && right_distance < 270) {
     callibrate_to_right_left_wall_far();
 
-    if (forward_distance > 22) {
-      while(left_distance > 270) {
+    if (forward_distance > 18) {
+      while(left_distance > 270 && forward_distance < 18) {
         act_to_go_for_coefficient(coeff_to_go_forward_small);
 
+        forward_distance = read_distance_from_ultrasonic_distancefinder();
         left_distance = read_distance_from_left_laser_distancefinder();
       }
 
@@ -596,7 +611,7 @@ void act_to_go_standart(uint8_t step_type) {
     act_to_go_forward();
   }
   else if (step_type == STOP_PATH_CODE){
-    act_to_go_for_coefficient(200);
+    act_to_go_for_coefficient(400);
 
     // callibrate_machine_position();
 
@@ -754,7 +769,7 @@ void go() {
 
     delay(300);
 
-    callibrate_90_degtree_rotate();
+    // callibrate_90_degtree_rotate();
   }
 
   // каллибровка переменных машинки для движения
